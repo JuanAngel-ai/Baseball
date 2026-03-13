@@ -69,7 +69,7 @@ def plot_spray_heatmap(player_name=None, start_dt="2023-03-30", end_dt="2023-10-
     title_name = player_name if player_name else "MLB"
     ax.set_title(f"{title_name} Spray Heatmap ({start_dt} to {end_dt})", fontsize=12)
     ax.set_xlim(-150, 150)
-    ax.set_ylim(-20, 25 0)
+    ax.set_ylim(-20, 250)
     ax.set_aspect("equal", adjustable="box")
     ax.grid(False)
     ax.legend(loc="upper right", frameon=True, fontsize=8)
