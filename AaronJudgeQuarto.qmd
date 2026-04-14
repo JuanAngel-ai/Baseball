@@ -8,7 +8,7 @@ author: "Juan Ángel Pérez Córcoles"
 
 format:
   html:
-    theme: darkly
+    theme: journal
     code-fold: true
     code-tools: true
     toc: true
@@ -42,6 +42,7 @@ $$
 The data was sourced using the `baseballr` package, which retrieves data from Baseball Savant (https://baseballsavant.mlb.com/). We take every single pitch that Aaron Judge has faced in his whole career, unfortunately the `baseballr`package fails a lot of times while trying to use it, so we employ the url where all the data is stored.
 
 ```{r}
+#| output: false
 library(baseballr)
 library(readr)
 library(dplyr)
@@ -53,6 +54,9 @@ library(tidyr)
 library(ggtext)
 library(knitr)
 library(gt)
+library(showtext)
+font_add_google("Roboto", "roboto") 
+showtext_auto()
 
 
 seasons = c(2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025)
@@ -107,6 +111,7 @@ The most important variables for our initial analysis are:
 The rest of the variables will be kept for further projects.
 
 ```{r}
+#| output: false
 pitch_data = data_raw %>%
   select(
     player_name,
@@ -147,6 +152,8 @@ med_bot = median(Matchup$sz_bot)
 Using the following plot we take a look at all the pitches who have been thrown to Aaron Judge by Kevin Gausman and José Berrios. This plot allows us to see the general distribution of pitches for both pitchers and how they compare to Judge's strike zone, which is represented as the gray box. 
 
 ```{r}
+#| warning: false
+#| message: false
 Matchup %>% 
   filter(pitcher %in% c(592332, 621244)) %>%
   mutate(
@@ -176,7 +183,8 @@ Matchup %>%
 
 In order to calculate Lee's L statistic, we need to create a grid similar to the one in the plot. We then calculate the proportion of pitches thrown by each pitcher in each cell and use these proportions to compute Lee's L statistic.
 
-```{r, echo = FALSE}
+```{r}
+#| output: false
 x_breaks = seq(-3, 2.5, by = 0.5)
 z_breaks = seq(-1, 5, by = 0.5)
 
@@ -220,6 +228,7 @@ grid_counts_full = full_grid %>%
 With our grid created we can now compute Lee's L statistic to measure the spatial correlation between the pitch distributions of Kevin Gausman and José Berrios. We use the `spdep` package to create a spatial weights matrix based on the grid structure, and then we apply the `lee.mc` function to compute the statistic with a permutation test for significance.
 
 ```{r}
+#| output: false
 neighbors_list = cell2nb(nrow = length(z_mids), 
                          ncol = length(x_mids), 
                          type = "queen")
@@ -247,10 +256,11 @@ The results show a Lee's L statistic of 0.52458, which indicates a moderate posi
 
 ## Correlation Plot
 
-We create a heatmap in order to visualize the proportion of pitches thrown by each pitcher in each zone of the strike area.
+We create a heatmap in order to visualize the proportion of pitches thrown by each pitcher in each area of the strike zone.
 
 ```{r}
-
+#| warning: false
+#| message: false
 # Data for heatmap
 heatmap_data = grid_counts_full %>%
   pivot_longer(
