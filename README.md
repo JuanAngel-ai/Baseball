@@ -11,10 +11,7 @@ To answer this, we analyze every pitch thrown to Aaron Judge by Kevin Gausman an
 
 ---
 
-## Visualizations
 
-![Pitch location heatmap](images/pitch_heatmap.png)
-*Proportion of pitches thrown to each zone of the strike area. The white box represents Aaron Judge's rulebook strike zone.*
 
 ---
 
