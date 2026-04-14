@@ -1,0 +1,411 @@
+---
+project:
+  type: default
+
+title: "How similar will they throw to me?"
+subtitle: "An analysis of pitches thrown to Aaron Judge by Kevin Gausman and José Berrios"
+author: "Juan Ángel Pérez Córcoles"
+
+format:
+  html:
+    theme: darkly
+    code-fold: true
+    code-tools: true
+    toc: true
+
+bibliography: 
+  - references.bib
+---
+
+## Introduction 
+
+Sabermetrics is probably the most advanced field in the world of sports analytics. This project aims to address the following question in the field: if I were a batter and I wanted to know how similar the pitches thrown to me by two different pitchers are, how would I do it?
+
+To answer this question, we will analyze pitches thrown to one of the best hitters in the sport Aaron Judge by two of the pitchers who have faced him the most: Kevin Gausman and José Berrios. Apart from the fact that both pitchers have faced Judge more than any other pitcher, another reason to choose them is because both are right-handed and from the same team, the Toronto Blue Jays, which makes the analysis more consistent.
+
+In order to figure this correlation between pitches, we use Lee's L statistic which is a bivariate spatial correlation coefficient which measures the association between two sets of observations made at the same spatial sites:
+
+$$
+L_{x,y} =
+\frac{N}{\sum_i \left(\sum_j w_{ij}\right)^2}
+\frac{
+\sum_{ij} (\tilde{x}_i - \bar{x})(\tilde{y}_i - \bar{y})
+}{
+\sqrt{\sum_i (\tilde{x}_i - \bar{x})^2}
+\sqrt{\sum_i (\tilde{y}_i - \bar{y})^2}
+}
+$$
+
+
+## Data
+
+The data was sourced using the `baseballr` package, which retrieves data from Baseball Savant (https://baseballsavant.mlb.com/). We take every single pitch that Aaron Judge has faced in his whole career, unfortunately the `baseballr`package fails a lot of times while trying to use it, so we employ the url where all the data is stored.
+
+```{r}
+library(baseballr)
+library(readr)
+library(dplyr)
+library(tidyverse)
+library(spdep)
+library(DescTools)
+library(ggplot2)
+library(tidyr)
+library(ggtext)
+library(knitr)
+library(gt)
+
+
+seasons = c(2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025)
+
+fetch_season_data = function(season) {
+  url = paste0(
+    'https://baseballsavant.mlb.com/statcast_search/csv?all=true',
+    '&hfGT=R%7C',
+    '&hfSea=', season, '%7C',
+    '&player_type=batter',
+    '&batters_lookup%5B%5D=592450',
+    '&min_pitches=0&min_results=0',
+    '&group_by=name',
+    '&sort_col=pitches',
+    '&player_event_sort=h_launch_speed',
+    '&sort_order=desc',
+    '&min_abs=0',
+    '&type=details'
+  )
+  
+  message("Fetching season: ", season)
+  
+  tryCatch({
+    df = read.csv(url)
+    df$season = season
+    return(df)
+  }, error = function(e) {
+    warning("Failed to fetch season ", season, ": ", e$message)
+    return(NULL)
+  })
+}
+
+# Fetch all seasons (this will take several minutes)
+all_seasons_list = lapply(seasons, fetch_season_data)
+
+# Remove any failed seasons and bind
+data_raw = bind_rows(Filter(Negate(is.null), all_seasons_list))
+
+variable.names(data_raw)
+```
+
+From all the variables we get from Aaron Judge (119), we select the following: `player_name`, `batter`, `pitcher`, `p_throws`, `stand`, `events`, `plate_x`, `plate_z`, `sz_top`, `sz_bot`, `balls`, `strikes`, `out_when_up`, `pitch_type`, `game_date`, `game_year`, `if_fielding_alignment` and `of_fielding_alignment`. 
+
+The most important variables for our initial analysis are:
+
+- `player_name`, `batter` and `pitcher`: for selecting the batter and the two pitchers.
+
+- `plate_x`and `plate_z`: which contains the coordinates where the pitches land.
+
+- `sz_top` and `sz_bot`: which contains the value which determine the height of the batter strike zone box, because every batter has a different strike zone and we use the median to determine an standard height for each batter.
+
+The rest of the variables will be kept for further projects.
+
+```{r}
+pitch_data = data_raw %>%
+  select(
+    player_name,
+    batter,
+    pitcher,
+    p_throws,
+    stand,
+    events,
+    plate_x,
+    plate_z,
+    sz_top,
+    sz_bot,
+    balls,
+    strikes,
+    outs_when_up,
+    pitch_type,
+    game_date,
+    game_year,
+    if_fielding_alignment,
+    of_fielding_alignment
+  )
+
+# Aaron Judge vs Kevin Gausman & Jose Berrios
+Matchup = pitch_data %>% 
+  filter(
+    batter == 592450,
+    pitcher %in% c(592332, 621244),
+    !is.na(plate_x),
+    !is.na(plate_z),
+    !is.na(sz_top),
+    !is.na(sz_bot)
+  )
+
+med_top = median(Matchup$sz_top)
+med_bot = median(Matchup$sz_bot)
+```
+
+Using the following plot we take a look at all the pitches who have been thrown to Aaron Judge by Kevin Gausman and José Berrios. This plot allows us to see the general distribution of pitches for both pitchers and how they compare to Judge's strike zone, which is represented as the gray box. 
+
+```{r}
+Matchup %>% 
+  filter(pitcher %in% c(592332, 621244)) %>%
+  mutate(
+    pitcher_name = case_when(
+      pitcher == 592332 ~ "Kevin Gausman",
+      pitcher == 621244 ~ "José Berrios"
+    )
+  ) %>% 
+  ggplot() +
+  geom_point(aes(x = plate_x, y = plate_z, color = pitcher_name), alpha = 0.5) +
+  geom_rect(aes(xmin = -0.7083, xmax = 0.7083, ymin = med_bot, ymax = med_top),
+            alpha = 0, fill = NA, color = "gray60", linewidth = 1) +
+  labs(title = "Aaron Judge vs Kevin Gausman & José Berrios ", 
+      subtitle = "Pitches thrown by Kevin Gausman and José Berrios to Aaron Judge",
+      caption = "The box is plotted according to Judge's rule book strike zone") +
+  scale_color_manual(values = c("Kevin Gausman" = "orange", "José Berrios" = "blue"),
+                    name = "Pitcher") +
+  coord_fixed(ratio = 1) +
+  theme_bw() +
+  theme(
+    text = element_text(family = "serif"),
+    legend.position = "none") +
+  facet_wrap(~pitcher_name)
+```
+
+## Grid Creation and Correlation Test
+
+In order to calculate Lee's L statistic, we need to create a grid similar to the one in the plot. We then calculate the proportion of pitches thrown by each pitcher in each cell and use these proportions to compute Lee's L statistic.
+
+```{r, echo = FALSE}
+x_breaks = seq(-3, 2.5, by = 0.5)
+z_breaks = seq(-1, 5, by = 0.5)
+
+Matchup = Matchup %>% 
+  mutate(
+    x_bin = cut(plate_x, breaks = x_breaks, include.lowest = TRUE),
+    z_bin = cut(plate_z, breaks = z_breaks, include.lowest = TRUE)
+  )
+
+grid_counts = Matchup %>%
+  group_by(pitcher, x_bin, z_bin) %>%
+  summarise(count = n(), .groups = 'drop')
+
+grid_counts = pivot_wider(
+  grid_counts, 
+  names_from = pitcher, 
+  values_from = count, 
+  values_fill = list(count = 0)
+)
+
+x_mids = (x_breaks[-length(x_breaks)] + x_breaks[-1]) / 2
+z_mids = (z_breaks[-length(z_breaks)] + z_breaks[-1]) / 2
+
+
+full_grid = expand.grid(x_bin = levels(Matchup$x_bin), 
+                        z_bin = levels(Matchup$z_bin))
+
+grid_counts_full = full_grid %>%
+  left_join(grid_counts, by = c("x_bin", "z_bin")) %>%
+  mutate(
+    `592332` = replace_na(`592332`, 0),
+    `621244` = replace_na(`621244`, 0),
+    x_mid = x_mids[as.numeric(x_bin)],
+    z_mid = z_mids[as.numeric(z_bin)],
+    prop_gausman = `592332` / sum(`592332`),
+    prop_berrios = `621244` / sum(`621244`)
+  ) %>%
+  arrange(z_bin, x_bin) 
+```
+
+With our grid created we can now compute Lee's L statistic to measure the spatial correlation between the pitch distributions of Kevin Gausman and José Berrios. We use the `spdep` package to create a spatial weights matrix based on the grid structure, and then we apply the `lee.mc` function to compute the statistic with a permutation test for significance.
+
+```{r}
+neighbors_list = cell2nb(nrow = length(z_mids), 
+                         ncol = length(x_mids), 
+                         type = "queen")
+neighbors_list = nb2listw(neighbors_list, style = "W", zero.policy = TRUE)
+
+lee.mc(grid_counts_full$prop_gausman,
+       grid_counts_full$prop_berrios,
+       neighbors_list,
+       nsim = 9999,
+       alternative = "greater")
+
+data.frame(
+  Parameter = c("Lee's L statistic", "Observed rank", "p-value", "Alternative", "Simulations"),
+  Value     = c("0.52458", "10,000 / 10,000", "0.0001", "greater", "9,999 + 1")
+) |>
+  gt() |>
+  tab_header(title = "Lee's L — Monte Carlo results") |>
+  tab_style(
+    style = cell_fill(color = "#EAF3DE"),
+    locations = cells_body(rows = Parameter == "p-value")
+  )
+```
+
+The results show a Lee's L statistic of 0.52458, which indicates a moderate positive spatial correlation between the pitch distributions of Kevin Gausman and José Berrios. The observed rank of 10,000 out of 10,000 in the permutation test suggests that the observed Lee's L is greater than all the values obtained from the random permutations, leading to a p-value of 0.0001. This indicates that the similarity in pitch distributions between the two pitchers is statistically significant.
+
+## Correlation Plot
+
+We create a heatmap in order to visualize the proportion of pitches thrown by each pitcher in each zone of the strike area.
+
+```{r}
+
+# Data for heatmap
+heatmap_data = grid_counts_full %>%
+  pivot_longer(
+    cols      = c(prop_gausman, prop_berrios),
+    names_to  = "pitcher",
+    values_to = "prop"
+  ) %>%
+  mutate(
+    pitcher_name = case_when(
+      pitcher == "prop_gausman" ~ "Kevin Gausman",
+      pitcher == "prop_berrios" ~ "José Berríos"
+    ),
+    pitcher_name = factor(pitcher_name, levels = c("José Berríos", "Kevin Gausman"))
+  )
+
+# Palette 
+bg_col       = "#0d0d0f"
+panel_col    = "#111114"
+strip_col    = "#1a1a1f"  
+grid_col     = "#1f1f25"
+text_col     = "#e8e8e8"
+subtext_col  = "#888899"
+gausman_col  = "#f97316"   
+berrios_col  = "#3b82f6"   
+
+# Theme 
+heatmap_theme = theme(
+  # backgrounds
+  plot.background   = element_rect(fill = bg_col,    color = NA),
+  panel.background  = element_rect(fill = panel_col, color = NA),
+  panel.grid        = element_blank(),
+  panel.border      = element_rect(color = grid_col, fill = NA, linewidth = 0.5),
+
+  # strips
+  strip.background  = element_rect(fill = strip_col, color = NA),
+  strip.text        = element_text(
+                        color  = text_col,
+                        family = "roboto",
+                        face   = "bold",
+                        size   = 13,
+                        margin = margin(8, 0, 8, 0)
+                      ),
+
+  # axes
+  axis.text         = element_text(color = subtext_col, family = "roboto", size = 9),
+  axis.title        = element_text(color = text_col,    family = "roboto", size = 10, margin = margin(t = 6)),
+  axis.ticks        = element_line(color = grid_col),
+
+  # legend
+  legend.background = element_rect(fill = bg_col, color = NA),
+  legend.key        = element_rect(fill = bg_col, color = NA),
+  legend.key.width  = unit(1.8, "cm"),
+  legend.key.height = unit(0.35, "cm"),
+  legend.text       = element_text(color = subtext_col, family = "roboto", size = 8),
+  legend.title      = element_text(color = text_col,    family = "roboto", size = 9,
+                                   margin = margin(b = 4)),
+  legend.position   = "bottom",
+  legend.direction  = "horizontal",
+
+  # titles
+  plot.title        = element_text(color = text_col,    family = "roboto",
+                                   face  = "bold", size = 17,
+                                   margin = margin(b = 6)),
+  plot.subtitle     = element_text(color = subtext_col, family = "roboto",
+                                   size  = 10,
+                                   lineheight = 1.4,
+                                   margin = margin(b = 14)),
+  plot.caption      = element_text(color = subtext_col, family = "roboto",
+                                   size  = 7,
+                                   margin = margin(t = 8)),
+  plot.margin       = margin(16, 16, 12, 16),
+
+  # facet spacing
+  panel.spacing     = unit(1.2, "lines")
+)
+
+# Color scale 
+heat_scale = scale_fill_gradientn(
+  colors = c("#0a0520", "#3b0764", "#7e22ce", "#c2410c", "#ea580c", "#f97316", "#fbbf24"),
+  values = scales::rescale(c(0, 0.005, 0.015, 0.03, 0.045, 0.06, 0.084)),
+  name   = "Pitch proportion",
+  labels = scales::percent_format(accuracy = 0.1),
+  guide  = guide_colorbar(
+    title.position = "top",
+    title.hjust    = 0.5,
+    barwidth       = 12,
+    barheight      = 0.5,
+    ticks          = FALSE,
+    frame.colour   = grid_col
+  )
+)
+# Strike zone 
+sz_box = list(
+  annotate("rect",
+           xmin = -0.7083, xmax = 0.7083,
+           ymin = med_bot,  ymax = med_top,
+           fill = NA, color = "white", linewidth = 0.9, alpha = 0.9),
+  annotate("text",
+           x = 0.7083, y = med_top + 0.25,
+           label = "Strike zone", hjust = -0.1, vjust = 1,
+           color = "white", family = "roboto", size = 2.8)
+)
+
+# p1: Side-by-side 
+p1 = ggplot(heatmap_data, aes(x = x_mid, y = z_mid, fill = prop)) +
+  geom_tile(color = grid_col, linewidth = 0.25) +
+  heat_scale +
+  sz_box +
+  facet_wrap(~pitcher_name) +
+  coord_fixed() +
+  labs(
+    title    = "Pitch Location vs Aaron Judge",
+    subtitle = "Proportion of pitches thrown to each zone | Shared color scale (max Gausman 6.4%, Berríos 8.4%)",
+    x        = "Horizontal position (ft)  —  catcher's perspective",
+    y        = "Vertical position (ft)",
+    caption  = "Data: Baseball Savant · Regular season 2016–2025"
+  ) +
+  heatmap_theme
+
+print(p1)
+
+# p2: Combined 
+combined_data = grid_counts_full %>%
+  mutate(
+    total      = `592332` + `621244`,
+    total_prop = total / sum(total)
+  )
+
+p2 = ggplot(combined_data, aes(x = x_mid, y = z_mid, fill = total_prop)) +
+  geom_tile(color = grid_col, linewidth = 0.25) +
+  heat_scale +
+  sz_box +
+  coord_fixed() +
+  labs(
+    title    = "Combined Pitch Location vs Aaron Judge",
+    subtitle = "Gausman + Berríos — proportion of total pitches per zone",
+    x        = "Horizontal position (ft)  —  catcher's perspective",
+    y        = "Vertical position (ft)",
+    caption  = "Data: Baseball Savant · Regular season 2016–2025"
+  ) +
+  heatmap_theme
+
+print(p2)
+
+```
+
+From both heatmaps we can observe a tendency of throws directed to the bottom right corner of Aaron Judge's strike zone, which is a common strategy used by pitchers against right-handed hitters. This area is often targeted because it can be more difficult for the batter to make solid contact, especially if they are trying to hit the ball with the sweet spot of the bat. 
+
+Nevertheless, this reasoning can be developed in future work by analyzing the area of the strike zone in which Aaron Judge has the better batting statistics.
+
+## Conclusion and further work
+
+This project aims to expand further the Sabermetrics literature by introducing a new method to analyze the similarity of pitches thrown by different pitchers to the same batter. By applying Lee's L statistic, we can quantify the spatial correlation between the pitch distributions of Kevin Gausman and José Berrios when facing Aaron Judge. The results indicate a significant positive correlation, suggesting that both pitchers have a similar approach when pitching to Judge.
+
+This analysis can be further expanded by including more pitchers and comparing their pitch distributions against Aaron Judge, or even against other batters. Additionally, we could analyze the effectiveness of the pitches in different zones of the strike area by looking at the batting outcomes (e.g., hits, strikeouts) associated with each zone. We can also add an explanation of why pitchers might target specific zones against certain batters based on their strengths and weaknesses, which would provide a more comprehensive understanding of the strategic elements in pitching.
+
+We also encourage the use of spatial data in the field of sports analytics in general, as it can provide valuable insights that are not captured by traditional statistics.
+
