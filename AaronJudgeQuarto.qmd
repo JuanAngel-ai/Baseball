@@ -13,6 +13,7 @@ format:
     code-tools: true
     toc: true
     embed-resources: true
+    output-file: "index.html" 
 
 bibliography: 
   - references.bib
