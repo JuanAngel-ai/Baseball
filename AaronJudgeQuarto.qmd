@@ -241,7 +241,9 @@ lee.mc(grid_counts_full$prop_gausman,
        neighbors_list,
        nsim = 9999,
        alternative = "greater")
+```
 
+```{r}
 data.frame(
   Parameter = c("Lee's L statistic", "Observed rank", "p-value", "Alternative", "Simulations"),
   Value     = c("0.52458", "10,000 / 10,000", "0.0001", "greater", "9,999 + 1")
@@ -253,6 +255,7 @@ data.frame(
     locations = cells_body(rows = Parameter == "p-value")
   )
 ```
+
 
 The results show a Lee's L statistic of 0.52458, which indicates a moderate positive spatial correlation between the pitch distributions of Kevin Gausman and José Berrios. The observed rank of 10,000 out of 10,000 in the permutation test suggests that the observed Lee's L is greater than all the values obtained from the random permutations, leading to a p-value of 0.0001. This indicates that the similarity in pitch distributions between the two pitchers is statistically significant.
 
